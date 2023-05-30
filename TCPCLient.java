@@ -2,7 +2,7 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 
-public class NourTCPClient {
+public class TCPClient {
 
   public static void main(String[] args) {
     Socket s = null;
@@ -17,7 +17,8 @@ public class NourTCPClient {
     String[] temp_data = null;
     String[] jobInfo = null;
     int jobID = 0;
-    String schd = null;
+    String schd = null;int queueSize= 0;
+
 
     try {
       // Connecting to server
@@ -33,7 +34,7 @@ public class NourTCPClient {
       System.out.println("RCVD: " + str);
 
       String username = System.getProperty("user.name");
-      dout.write(("AUTH " + username + "\n").getBytes()); // get username form system
+      dout.write(("AUTH " + username + "\n").getBytes()); // get username from the system
       dout.flush();
       System.out.println("SENT: AUTH");
       reply = in.readLine();
@@ -90,6 +91,20 @@ public class NourTCPClient {
           }
           flag = false;
 
+          
+          
+          //  Attempt Find server with the shortest queue - incomplete
+//           int shortest = Integer.MAX_VALUE;
+//           String target = "";
+//           for (int i= 0; i< numOfServers; i++) {
+//             String[] serverInfo= server.split(" ");
+//             
+         //queuesize= Integer.parseInt(serverInfo[5]);
+//             if (queueSize< shortest) {
+//               shortest= queueSize;
+//               target= serverInfo;
+//             }
+//           }
           schd = "SCHD " + jobID + " " + largestType + " " + sendingTo + "\n";
           dout.write(schd.getBytes());
           dout.flush();
