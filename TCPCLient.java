@@ -1,147 +1,97 @@
 import java.io.*;
 import java.net.*;
-import java.util.*;
 
 public class TCPClient {
 
-  public static void main(String[] args) {
-    Socket s = null;
-    BufferedReader in = null;
-    DataOutputStream dout = null;
-    String reply = " ";
-    Boolean flag = true;
-    String largestType = null;
-    int largestCore = 0;
-    int serverCount = 0;
-    int sendingTo = 0;
-    String[] temp_data = null;
-    String[] jobInfo = null;
-    int jobID = 0;
-    String schd = null;int queueSize= 0;
+    public static void main(String[] args) {
+        Socket socket = null;
+        BufferedReader bufferedReader = null;
+        DataOutputStream dataOutputStream = null;
+        String reply;
+        boolean firstJob = true;
+        String largestType = null;
+        int largestCoreCount = 0;
+        int serverCount = 0;
+        int roundRobinCounter = 0;
 
+        try {
+            socket = new Socket("127.0.0.1", 50000);
+            bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            dataOutputStream = new DataOutputStream(socket.getOutputStream());
 
-    try {
-      // Connecting to server
-      s = new Socket("127.0.0.1", 50000);
-      in = new BufferedReader(new InputStreamReader(s.getInputStream()));
-      dout = new DataOutputStream(s.getOutputStream());
+            // Initial handshake with the server
+            sendMessage(dataOutputStream, "HELO");
+            System.out.println("RCVD: " + readMessage(bufferedReader));
 
-      dout.write(("HELO\n").getBytes());
-      dout.flush();
-      System.out.println("SENT: HELO");
+            // Authentication
+            String username = System.getProperty("user.name");
+            sendMessage(dataOutputStream, "AUTH " + username);
+            System.out.println("RCVD: " + readMessage(bufferedReader));
 
-      String str = (String) in.readLine();
-      System.out.println("RCVD: " + str);
+            // Ready for job
+            sendMessage(dataOutputStream, "REDY");
 
-      String username = System.getProperty("user.name");
-      dout.write(("AUTH " + username + "\n").getBytes()); // get username from the system
-      dout.flush();
-      System.out.println("SENT: AUTH");
-      reply = in.readLine();
-      System.out.println("RCVD: " + reply);
+            while (!(reply = readMessage(bufferedReader)).equals("NONE")) {
+                System.out.println("RCVD: " + reply);
 
-      dout.write("REDY\n".getBytes());
-      System.out.println("SENT: REDY");
-      dout.flush();
-      reply = in.readLine();
-      System.out.println("RCVD: " + reply);
+                // If job is received
+                if (reply.startsWith("JOBN")) {
+                    if (firstJob) {
+                        sendMessage(dataOutputStream, "GETS All");
+                        reply = readMessage(bufferedReader);
+                        System.out.println("RCVD: " + reply);
 
-      // Loop through jobs
-      while (!reply.equals("NONE")) {
-        jobInfo = reply.split(" ");
+                        // Handling server list
+                        handleServerList(bufferedReader, dataOutputStream);
 
-        if (jobInfo[0].equals("JOBN")) {
-          jobID = Integer.parseInt(jobInfo[2]);
+                        // Reset firstJob flag after handling first job
+                        firstJob = false;
+                    }
 
-          if (flag) {
-            dout.write("GETS All\n".getBytes());
-            dout.flush();
-            System.out.println("SENT: GETS All");
+                    // Schedule job to server (round-robin for simplicity)
+                    String scheduleCommand = "SCHD " + extractJobId(reply) + " " + largestType + " " + roundRobinCounter;
+                    sendMessage(dataOutputStream, scheduleCommand);
+                    System.out.println("RCVD: " + readMessage(bufferedReader));
 
-            reply = in.readLine(); // DATA X Y
-            System.out.println("RCVD: " + reply);
-            // Parsing DATA message to get server information
-            String[] data = reply.split(" ");
-            int numOfServers = Integer.parseInt(data[1]);
-
-            dout.write("OK\n".getBytes());
-            dout.flush();
-
-            // Loop through servers to find largest type and core count //incomplete
-            for (int i = 0; i < numOfServers; i++) {
-              reply = in.readLine();
-              System.out.println("RCVD: " + reply);
-              temp_data = reply.split(" ");
-
-              if (Integer.parseInt(temp_data[4]) > largestCore) {
-                largestCore = Integer.parseInt(temp_data[4]);
-                largestType = temp_data[0];
-                serverCount = 1;
-              } else if (largestType.equals(temp_data[0])) {
-                serverCount = serverCount + 1;
-              }
+                    roundRobinCounter = (roundRobinCounter + 1) % serverCount;
+                    sendMessage(dataOutputStream, "REDY");
+                }
             }
 
-            dout.write("OK\n".getBytes());
-            System.out.println("SENT: OK");
-
-            dout.flush();
-            reply = in.readLine();
-            System.out.println(reply); // .
-          }
-          flag = false;
-
-          
-          
-          //  Attempt Find server with the shortest queue - incomplete
-//           int shortest = Integer.MAX_VALUE;
-//           String target = "";
-//           for (int i= 0; i< numOfServers; i++) {
-//             String[] serverInfo= server.split(" ");
-//             
-         //queuesize= Integer.parseInt(serverInfo[5]);
-//             if (queueSize< shortest) {
-//               shortest= queueSize;
-//               target= serverInfo;
-//             }
-//           }
-          schd = "SCHD " + jobID + " " + largestType + " " + sendingTo + "\n";
-          dout.write(schd.getBytes());
-          dout.flush();
-          System.out.println(schd);
-          reply = in.readLine();
-          System.out.println(reply);
-          sendingTo++;
-          sendingTo = sendingTo % serverCount; //Round Robin
-
-          dout.write("REDY\n".getBytes());
-          System.out.println("SENT: REDY");
-          dout.flush();
-          reply = in.readLine();
-          System.out.println("RCVD:" + reply);
-        } else {
-          dout.write("REDY\n".getBytes());
-          System.out.println("SENT: REDY");
-          dout.flush();
-          reply = in.readLine();
-          System.out.println("RCVD:" + reply);
+            // Quitting
+            sendMessage(dataOutputStream, "QUIT");
+            System.out.println("RCVD: " + readMessage(bufferedReader));
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (bufferedReader != null) bufferedReader.close();
+                if (dataOutputStream != null) dataOutputStream.close();
+                if (socket != null) socket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
-      }
-      // Send quit message
-      dout.write("QUIT\n".getBytes());
-      reply = in.readLine();
-      dout.flush();
-      System.out.println(reply);
-    } catch (IOException e) {
-      e.printStackTrace();
-    } finally {
-      try {
-        in.close();
-        dout.close();
-        s.close();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
     }
-  }
+
+    private static void sendMessage(DataOutputStream out, String message) throws IOException {
+        out.write((message + "\n").getBytes());
+        out.flush();
+        System.out.println("SENT: " + message);
+    }
+
+    private static String readMessage(BufferedReader in) throws IOException {
+        return in.readLine();
+    }
+
+    private static int extractJobId(String jobnMessage) {
+        return Integer.parseInt(jobnMessage.split(" ")[2]);
+    }
+
+    private static void handleServerList(BufferedReader in, DataOutputStream out) throws IOException {
+        sendMessage(out, "OK"); // Acknowledge the server list
+        sendMessage(out, "OK"); // Finalize server list handling
+        System.out.println("RCVD: " + readMessage(in)); // Expecting '.'
+    }
 }
+
